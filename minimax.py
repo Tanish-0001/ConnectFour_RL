@@ -53,26 +53,41 @@ def _is_winning_move(board: list[list[str]], row: int, column: int, piece: str) 
     return False
 
 
-def _score_window(window: list[str], player: str, opponent: str) -> int:
-    """Scores (heuristically) a sequence of four cells. Windows favoring opponents are weighed
-    more in magnitude than windows favoring itself - a slight defensive bias."""
+def _score_window(
+    board: list[list[str]],
+    window: list[tuple[int, int]],
+    player: str,
+    opponent: str,
+) -> int:
+    """Score a four-cell window, accounting for whether its empty cell is playable.
 
-    player_count = window.count(player)
-    opponent_count = window.count(opponent)
-    empty_count = window.count(" ")
+    A cell is playable when it is on the bottom row or already has a piece
+    directly beneath it. Three-piece windows with a floating empty cell are
+    still useful, but are worth less because they cannot win immediately.
+    """
+    pieces = [board[row][column] for row, column in window]
+    player_count = pieces.count(player)
+    opponent_count = pieces.count(opponent)
+    empty_count = pieces.count(" ")
 
     if player_count and opponent_count:  # the window is already blocked from winning/losing
         return 0
     if player_count == 3 and empty_count == 1:
-        return 100
+        empty_index = pieces.index(" ")
+        row, column = window[empty_index]
+        playable = row == len(board) - 1 or board[row + 1][column] != " "
+        return 125 if playable else 75
     if player_count == 2 and empty_count == 2:
         return 10
     if player_count == 1 and empty_count == 3:
         return 1
     if opponent_count == 3 and empty_count == 1:
-        return -120
+        empty_index = pieces.index(" ")
+        row, column = window[empty_index]
+        playable = row == len(board) - 1 or board[row + 1][column] != " "
+        return -125 if playable else -75
     if opponent_count == 2 and empty_count == 2:
-        return -12
+        return -10
     if opponent_count == 1 and empty_count == 3:
         return -1
     return 0
@@ -84,9 +99,8 @@ def _evaluate(board: list[list[str]], player: str, opponent: str) -> int:
     and returns an overall estimate for who's winning in the current board.
 
     Note:
-    1. To keep window evaluation simple, it does not consider whether a "winning" window
-      is playable or not (ex: a horizontal window X X X _ is winning even if it is not 
-      possible to play a piece in the last column for several moves)
+    1. Three-piece windows distinguish playable empty cells from floating empty 
+       cells, but don't measure how many supporting moves a floating cell requires.
     2. The scores used are kept much lower than WIN_SCORE so that a position that is won
        by either player is clearly much better/worse than the heuristic score.
     """
@@ -94,21 +108,24 @@ def _evaluate(board: list[list[str]], player: str, opponent: str) -> int:
     score = 6 * sum(row[3] == player for row in board)  # rewards center column (6) more than other columns (1)
     score -= 6 * sum(row[3] == opponent for row in board)
 
-    windows: list[list[str]] = []
+    windows: list[list[tuple[int, int]]] = []
     for row in range(6):
-        windows.extend(board[row][column:column + 4] for column in range(4))
+        windows.extend(
+            [(row, column + offset) for offset in range(4)]
+            for column in range(4)
+        )
     for column in range(7):
         windows.extend(
-            [board[row + offset][column] for offset in range(4)]
+            [(row + offset, column) for offset in range(4)]
             for row in range(3)
         )
     for row in range(3):
         for column in range(4):
-            windows.append([board[row + i][column + i] for i in range(4)])
-            windows.append([board[row + 3 - i][column + i] for i in range(4)])
+            windows.append([(row + i, column + i) for i in range(4)])
+            windows.append([(row + 3 - i, column + i) for i in range(4)])
 
     return score + sum(
-        _score_window(window, player, opponent) for window in windows
+        _score_window(board, window, player, opponent) for window in windows
     )
 
 
