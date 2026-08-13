@@ -214,7 +214,7 @@ def _search_depth(
     return best_move, int(best_score), True
 
 
-def choose_action(game: ConnectFourGame, time_limit: float = 2.0) -> int:
+def choose_action(game: ConnectFourGame, time_limit: float = 2.0, verbose=False) -> int:
     """Return the best legal move found within time_limit seconds."""
     if time_limit <= 0:
         raise ValueError("time_limit must be positive")
@@ -243,10 +243,16 @@ def choose_action(game: ConnectFourGame, time_limit: float = 2.0) -> int:
         best_move = move
         if score >= WIN_SCORE or not fully_searched:
             break
-
+    
+    if verbose:
+        print(f"Explored upto depth {depth}.")
     return best_move
 
 
 if __name__ == "__main__":
     game = ConnectFourGame()
-    print(f"Minimax chooses column {choose_action(game)}")
+    while not game.is_game_over():
+        move = choose_action(game, 2.0, True)
+        print(f"Player {game.turn % 2 + 1} chooses column {move + 1}.")
+        game.play_move(move)
+    print(f"Player {game.get_winner() + 1} won in {game.turn + 1} moves.")
