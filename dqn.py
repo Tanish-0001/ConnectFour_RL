@@ -1,3 +1,4 @@
+import argparse
 import random
 from collections import deque, namedtuple
 from pathlib import Path
@@ -5,11 +6,13 @@ from pathlib import Path
 import torch
 import torch.nn.functional as F
 
+from alpha_beta import choose_action as choose_alpha_beta_action
 from connect_four import ConnectFourGame
 from environment import Environment
 from model import DQNNet
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+DEFAULT_CHECKPOINT_PATH = Path(__file__).with_name("connect_four_dqn.pt")
 
 
 Transition = namedtuple(
@@ -148,15 +151,119 @@ def evaluate_against_random(
     return wins, draws, losses
 
 
+def evaluate_against_alpha_beta(
+    model: DQNNet,
+    time_limit: float = 2.0,
+) -> tuple[int, int, int]:
+    """Play two games against alpha-beta, once from each side.
+
+    Returns wins, draws, and losses from the DQN's perspective.
+    """
+    wins = 0
+    draws = 0
+    losses = 0
+
+    for model_player in (0, 1):
+        env = Environment()
+
+        while not env.is_game_over():
+            current_player = env.game.turn % 2
+            if current_player == model_player:
+                action = choose_action(model, env.game)
+            else:
+                action = choose_alpha_beta_action(
+                    env.game, time_limit=time_limit
+                )
+            env.step(action)
+
+        winner = env.get_winner()
+        if winner == -1:
+            print(f"Game {model_player + 1}: Draw")
+            draws += 1
+        elif winner == model_player:
+            print(f"Game {model_player + 1}: Win")
+            wins += 1
+        else:
+            print(f"Game {model_player + 1}: Loss")
+            losses += 1
+
+    return wins, draws, losses
+
+
+def load_training_checkpoint(
+    checkpoint_path: Path,
+    model: DQNNet,
+    target_network: DQNNet,
+    optimizer: torch.optim.Optimizer,
+) -> int:
+    """Restore training state and return the number of completed games.
+
+    Older weights-only checkpoints are also supported. They restore the model,
+    initialize the target network from it, and begin with a fresh optimizer.
+    """
+    checkpoint = torch.load(
+        checkpoint_path, map_location=device, weights_only=True
+    )
+
+    if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
+        model.load_state_dict(checkpoint["model_state_dict"])
+        target_network.load_state_dict(
+            checkpoint.get("target_network_state_dict", checkpoint["model_state_dict"])
+        )
+        if "optimizer_state_dict" in checkpoint:
+            optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        completed_games = int(checkpoint.get("completed_games", 0))
+    else:
+        model.load_state_dict(checkpoint)
+        target_network.load_state_dict(model.state_dict())
+        completed_games = 0
+
+    target_network.eval()
+    return completed_games
+
+
+def save_training_checkpoint(
+    checkpoint_path: Path,
+    model: DQNNet,
+    target_network: DQNNet,
+    optimizer: torch.optim.Optimizer,
+    completed_games: int,
+) -> None:
+    """Save enough state to continue optimization in a later run."""
+    torch.save(
+        {
+            "model_state_dict": model.state_dict(),
+            "target_network_state_dict": target_network.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+            "completed_games": completed_games,
+        },
+        checkpoint_path,
+    )
+
+
 def main() -> None:
-    num_games = 100_000
+    parser = argparse.ArgumentParser(description="Train the Connect Four DQN")
+    parser.add_argument(
+        "--resume",
+        nargs="?",
+        const=DEFAULT_CHECKPOINT_PATH,
+        type=Path,
+        metavar="CHECKPOINT",
+        help=(
+            "resume training from a checkpoint; if no path is supplied, "
+            "connect_four_dqn.pt is used"
+        ),
+    )
+    args = parser.parse_args()
+
+    num_games = 200_000
     batch_size = 128
     gamma = 0.99
     learning_rate = 5e-4
     target_update_frequency = 200
     epsilon_start = 1.0
     epsilon_end = 0.05
-    epsilon_decay_games = 25_000
+    epsilon_decay_games = 40_000
 
     model = DQNNet().to(device)
 
@@ -167,60 +274,89 @@ def main() -> None:
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
     memory = deque(maxlen=50_000)
 
+    completed_games = 0
+    if args.resume is not None:
+        completed_games = load_training_checkpoint(
+            args.resume, model, target_network, optimizer
+        )
+        print(
+            f"Resumed training from {args.resume} "
+            f"({completed_games} completed games)"
+        )
+
     recent_losses = deque(maxlen=100)
-    for game_number in range(1, num_games + 1):
-        env = Environment()
-        decay_fraction = min((game_number - 1) / epsilon_decay_games, 1.0)
-        epsilon = epsilon_start + decay_fraction * (
-            epsilon_end - epsilon_start
+    final_game = completed_games + num_games
+
+    try:
+        for game_number in range(completed_games + 1, final_game + 1):
+            env = Environment()
+            decay_fraction = min((game_number - 1) / epsilon_decay_games, 1.0)
+            epsilon = epsilon_start + decay_fraction * (
+                epsilon_end - epsilon_start
+            )
+
+            while not env.is_game_over():
+                state = encode_state(env.game)
+                action = choose_action(model, env.game, state, epsilon)
+                reward, done = env.step(action)
+                next_state = encode_state(env.game)
+
+                memory.append(
+                    Transition(state, action, float(reward), next_state, bool(done))
+                )
+
+            loss = train(
+                model,
+                target_network,
+                memory,
+                batch_size,
+                optimizer,
+                gamma,
+            )
+            if loss is not None:
+                recent_losses.append(loss)
+
+            if game_number % target_update_frequency == 0:
+                target_network.load_state_dict(model.state_dict())
+
+            if game_number % 100 == 0:
+                average_loss = (
+                    sum(recent_losses) / len(recent_losses)
+                    if recent_losses
+                    else float("nan")
+                )
+                print(
+                    f"Game {game_number:5d}/{final_game} | "
+                    f"epsilon {epsilon:.3f} | memory {len(memory):5d} | "
+                    f"loss {average_loss:.4f}"
+                )
+
+            if game_number % 5_000 == 0:
+                wins, draws, losses = evaluate_against_random(model, num_games=100)
+                print(
+                    f"Random evaluation after {game_number:5d} games | "
+                    f"wins {wins} | draws {draws} | losses {losses}"
+                )
+
+                wins, draws, losses = evaluate_against_alpha_beta(
+                    model, time_limit=0.1
+                )
+                # print(
+                #     f"Alpha-beta evaluation after {game_number:5d} games | "
+                #     f"wins {wins} | draws {draws} | losses {losses}"
+                # )
+
+        output_path = DEFAULT_CHECKPOINT_PATH
+        save_training_checkpoint(
+            output_path, model, target_network, optimizer, final_game
         )
-
-        while not env.is_game_over():
-            state = encode_state(env.game)
-            action = choose_action(model, env.game, state, epsilon)
-            reward, done = env.step(action)
-            next_state = encode_state(env.game)
-
-            memory.append(
-                Transition(state, action, float(reward), next_state, bool(done))
-            )
-
-        loss = train(
-            model,
-            target_network,
-            memory,
-            batch_size,
-            optimizer,
-            gamma,
+        print(f"Saved trained model to {output_path}")
+    
+    except KeyboardInterrupt:
+        save_training_checkpoint(
+            "connect_four_dqn_interrupted.pt", model, target_network, optimizer, final_game
         )
-        if loss is not None:
-            recent_losses.append(loss)
-
-        if game_number % target_update_frequency == 0:
-            target_network.load_state_dict(model.state_dict())
-
-        if game_number % 100 == 0:
-            average_loss = (
-                sum(recent_losses) / len(recent_losses)
-                if recent_losses
-                else float("nan")
-            )
-            print(
-                f"Game {game_number:5d}/{num_games} | "
-                f"epsilon {epsilon:.3f} | memory {len(memory):5d} | "
-                f"loss {average_loss:.4f}"
-            )
-
-        if game_number % 1_000 == 0:
-            wins, draws, losses = evaluate_against_random(model, num_games=100)
-            print(
-                f"Evaluation after {game_number:5d} games | "
-                f"wins {wins} | draws {draws} | losses {losses}"
-            )
-
-    output_path = Path(__file__).with_name("connect_four_dqn.pt")
-    torch.save(model.state_dict(), output_path)
-    print(f"Saved trained model to {output_path}")
+        print(f"Saved interrupted model.")
 
 
 if __name__ == "__main__":
