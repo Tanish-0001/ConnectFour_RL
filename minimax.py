@@ -133,26 +133,30 @@ def _minimax(
         value = -inf
         for column in moves:
             row = _play(board, column, player)
-            if _is_winning_move(board, row, column, player):
-                child_value = WIN_SCORE + depth  # earlier wins are better than late ones. also, adding depth ensures the opponent tries to delay a loss if inevitable
-            else:
-                child_value = _minimax(
-                    board, depth - 1, False, player, opponent, deadline
-                )
-            board[row][column] = " "
+            try:
+                if _is_winning_move(board, row, column, player):
+                    child_value = WIN_SCORE + depth  # earlier wins are better than late ones. also, adding depth ensures the opponent tries to delay a loss if inevitable
+                else:
+                    child_value = _minimax(
+                        board, depth - 1, False, player, opponent, deadline
+                    )
+            finally:
+                board[row][column] = " "
             value = max(value, child_value)
         return int(value)
 
     value = inf
     for column in moves:
         row = _play(board, column, opponent)
-        if _is_winning_move(board, row, column, opponent):
-            child_value = -WIN_SCORE - depth
-        else:
-            child_value = _minimax(
-                board, depth - 1, True, player, opponent, deadline
-            )
-        board[row][column] = " "
+        try:
+            if _is_winning_move(board, row, column, opponent):
+                child_value = -WIN_SCORE - depth
+            else:
+                child_value = _minimax(
+                    board, depth - 1, True, player, opponent, deadline
+                )
+        finally:
+            board[row][column] = " "
         value = min(value, child_value)
     return int(value)
 
@@ -163,30 +167,55 @@ def _search_depth(
     player: str,
     opponent: str,
     deadline: float,
-) -> tuple[int, int]:
-    best_move = _legal_moves(board)[0]
-    best_score = -inf
+    preferred_move: int,
+) -> tuple[int, int, bool]:
+    """Search one depth, retaining only fully evaluated root moves.
 
-    for column in _legal_moves(board):
-        if perf_counter() >= deadline:
-            raise SearchTimeout
-        row = _play(board, column, player)
-        if _is_winning_move(board, row, column, player):
-            score = WIN_SCORE + depth
-        else:
-            score = _minimax(
-                board, depth - 1, False, player, opponent, deadline
-            )
-        board[row][column] = " "
+    The boolean result says whether every root move was evaluated. If time
+    expires after at least one root move finishes, the best completed result
+    is returned with False. If the first root move is interrupted, the timeout
+    is propagated so the caller keeps the previous depth's result.
+    """
+    moves = _legal_moves(board)
+    if preferred_move in moves:
+        moves.remove(preferred_move)
+        moves.insert(0, preferred_move)
+
+    best_move = moves[0]
+    best_score = -inf
+    completed_moves = 0
+
+    for column in moves:
+        try:
+            if perf_counter() >= deadline:
+                raise SearchTimeout
+            row = _play(board, column, player)
+            try:
+                if _is_winning_move(board, row, column, player):
+                    score = WIN_SCORE + depth
+                else:
+                    score = _minimax(
+                        board, depth - 1, False, player, opponent, deadline
+                    )
+            finally:
+                board[row][column] = " "
+        except SearchTimeout:
+            if completed_moves:
+                return best_move, int(best_score), False
+            raise
+
+        completed_moves += 1
         if score > best_score:
             best_score = score
             best_move = column
+        if score >= WIN_SCORE:
+            return best_move, int(best_score), True
 
-    return best_move, int(best_score)
+    return best_move, int(best_score), True
 
 
 def choose_action(game: ConnectFourGame, time_limit: float = 2.0) -> int:
-    """Return the best legal move found within ``time_limit`` seconds."""
+    """Return the best legal move found within time_limit seconds."""
     if time_limit <= 0:
         raise ValueError("time_limit must be positive")
     legal_moves = game.get_legal_moves()
@@ -205,14 +234,14 @@ def choose_action(game: ConnectFourGame, time_limit: float = 2.0) -> int:
 
     for depth in range(1, remaining_moves + 1):
         try:
-            move, score = _search_depth(
-                board, depth, player, opponent, deadline
+            move, score, fully_searched = _search_depth(
+                board, depth, player, opponent, deadline, best_move
             )
         except SearchTimeout:
             break
 
         best_move = move
-        if score >= WIN_SCORE:
+        if score >= WIN_SCORE or not fully_searched:
             break
 
     return best_move
