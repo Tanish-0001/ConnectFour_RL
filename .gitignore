@@ -1,3 +1,6 @@
 __pycache__/
 
 *.pt
+
+# best model
+!connect_four_dqn.pt
