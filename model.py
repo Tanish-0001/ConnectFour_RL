@@ -45,10 +45,17 @@ class DQNNet(nn.Module):
 
 
 if __name__ == "__main__":
-    model = DQNNet()
+    from time import perf_counter
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    model = DQNNet().to(device)
     total = sum(p.numel() for p in model.parameters())
     print(total)
 
-    inp = torch.randn((32, 2, 6, 7))
+    inp = torch.randn((32, 2, 6, 7)).to(device)
+
+    start = perf_counter()
     out = model(inp)
+    print(f"Time taken {perf_counter() - start} seconds.")
     print(out.shape)

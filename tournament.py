@@ -8,7 +8,6 @@ import torch
 from alpha_beta import choose_action as alpha_beta_action
 from connect_four import ConnectFourGame
 from dqn import choose_action as dqn_action
-from dqn import device
 from environment import Environment
 from minimax import choose_action as minimax_action
 from model import DQNNet
@@ -16,6 +15,7 @@ from model import DQNNet
 
 DEFAULT_MODEL_PATH = Path(__file__).with_name("connect_four_dqn.pt")
 MoveFunction = Callable[[ConnectFourGame], int]
+device = torch.device("cpu")  # no batching and small model, so GPU acceleration doesn't help
 
 
 @dataclass
