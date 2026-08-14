@@ -111,17 +111,26 @@ def print_standings(standings: dict[str, Standing]) -> None:
 
 def run_tournament(
     model: DQNNet,
-    time_limit: float = 2.0,
+    time_limit: float | None = None,
+    depth: int | None = None,
 ) -> dict[str, Standing]:
     """Run six games, with every pair playing once from each side."""
-    if time_limit <= 0:
+    if time_limit is None and depth is None:
+        time_limit = 2.0
+    if time_limit is not None and time_limit <= 0:
         raise ValueError("time_limit must be positive")
+    if time_limit is None and (
+        not isinstance(depth, int) or isinstance(depth, bool) or depth <= 0
+    ):
+        raise ValueError("depth must be a positive integer")
 
     agents: dict[str, MoveFunction] = {
         "DQN": lambda game: dqn_action(model, game),
-        "Minimax": lambda game: minimax_action(game, time_limit=time_limit),
+        "Minimax": lambda game: minimax_action(
+            game, time_limit=time_limit, depth=depth
+        ),
         "Alpha-beta": lambda game: alpha_beta_action(
-            game, time_limit=time_limit
+            game, time_limit=time_limit, depth=depth
         ),
     }
     standings = {name: Standing() for name in agents}
@@ -167,13 +176,26 @@ def main() -> None:
     parser.add_argument(
         "--time-limit",
         type=float,
-        default=2.0,
-        help="seconds allowed per minimax/alpha-beta move (default: 2)",
+        default=None,
+        help=(
+            "seconds allowed per minimax/alpha-beta move; takes priority "
+            "over --depth (default: 2 when neither option is supplied)"
+        ),
+    )
+    parser.add_argument(
+        "--depth",
+        type=int,
+        default=None,
+        help="fixed minimax/alpha-beta search depth when no time limit is supplied",
     )
     args = parser.parse_args()
 
     model = load_model(args.model)
-    run_tournament(model, time_limit=args.time_limit)
+    run_tournament(
+        model,
+        time_limit=args.time_limit,
+        depth=args.depth,
+    )
 
 
 if __name__ == "__main__":
