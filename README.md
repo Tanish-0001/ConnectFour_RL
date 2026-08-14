@@ -6,14 +6,14 @@ A standard 7-column, 6-row Connect Four environment with three agents: a deep Q-
 
 ### DQN
 
-#### State
+#### 1. State
 The state is a `2 x 6 x 7` tensor. The first channel stores Player 1 as `1`, Player 2 as `-1`, and empty cells as `0`; the second channel is filled with `1` or `-1` to identify the current player. 
 
-#### Model and Action Space
+#### 2. Model and Action Space
 The action space is simply 7 integers - representing which column to place the piece in.
 The DQN uses two convolutional layers followed by fully connected layers that output one Q-value per column.
 
-#### Training
+#### 3. Reward and Training
 Training the DQN uses epsilon-greedy self-play, a replay buffer, and a target network. A win gives `+1` and a draw gives `0`. Because the next state belongs to the opponent, its value is subtracted in the Bellman target.
 
 ### Tree Search Algorithms
