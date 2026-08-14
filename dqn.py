@@ -256,11 +256,11 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    num_games = 200_000
+    num_games = 500_000
     batch_size = 128
     gamma = 0.99
     learning_rate = 5e-4
-    target_update_frequency = 200
+    target_update_frequency = 500
     epsilon_start = 1.0
     epsilon_end = 0.05
     epsilon_decay_games = 40_000
@@ -272,7 +272,7 @@ def main() -> None:
     target_network.eval()
 
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
-    memory = deque(maxlen=50_000)
+    memory = deque(maxlen=100_000)
 
     completed_games = 0
     if args.resume is not None:
@@ -339,7 +339,7 @@ def main() -> None:
                 )
 
                 wins, draws, losses = evaluate_against_alpha_beta(
-                    model, time_limit=0.1
+                    model, time_limit=0.5
                 )
                 # print(
                 #     f"Alpha-beta evaluation after {game_number:5d} games | "
