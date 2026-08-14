@@ -28,7 +28,7 @@ def load_trained_model(model_path: Path) -> DQNNet:
     first_conv = checkpoint["cnn.0.weight"]
     second_conv = checkpoint["cnn.2.weight"]
     hidden_size = checkpoint["linear_layers.0.weight"].shape[0]
-    model = DQNNet().to("cuda")
+    model = DQNNet().to("cpu")
     model.load_state_dict(checkpoint)
     model.eval()
     return model

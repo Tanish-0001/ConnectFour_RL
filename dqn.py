@@ -53,10 +53,11 @@ def choose_action(model, game, state: torch.Tensor | None = None, epsilon=0.0) -
         return random.choice(legal_actions)
 
     was_training = model.training
+    model_device = next(model.parameters()).device
     model.eval()
     with torch.no_grad():
-        q_values = model(state.unsqueeze(0).to(device)).squeeze(0)
-        legal_mask = torch.zeros(game.COLUMNS, dtype=torch.bool, device=device)
+        q_values = model(state.unsqueeze(0).to(model_device)).squeeze(0)
+        legal_mask = torch.zeros(game.COLUMNS, dtype=torch.bool, device=model_device)
         legal_mask[legal_actions] = True
         q_values = q_values.masked_fill(~legal_mask, -torch.inf)
         action = int(q_values.argmax().item())
@@ -286,6 +287,7 @@ def main() -> None:
 
     recent_losses = deque(maxlen=100)
     final_game = completed_games + num_games
+    last_completed_game = completed_games
 
     try:
         for game_number in range(completed_games + 1, final_game + 1):
@@ -318,6 +320,8 @@ def main() -> None:
 
             if game_number % target_update_frequency == 0:
                 target_network.load_state_dict(model.state_dict())
+
+            last_completed_game = game_number
 
             if game_number % 100 == 0:
                 average_loss = (
@@ -354,7 +358,11 @@ def main() -> None:
     
     except KeyboardInterrupt:
         save_training_checkpoint(
-            "connect_four_dqn_interrupted.pt", model, target_network, optimizer, final_game
+            "connect_four_dqn_interrupted.pt",
+            model,
+            target_network,
+            optimizer,
+            last_completed_game,
         )
         print(f"Saved interrupted model.")
 
