@@ -23,7 +23,7 @@ Non-terminal leaves are scored heuristically using things like center control, a
 
 Alpha-beta returns the same fixed-depth result as minimax while pruning branches that cannot affect the decision, hence leading to much faster evaluations. For perspective, minimax takes around 45 seconds to find a move at depth 7, and alpha-beta search takes only 0.4 seconds. In fact, even at depth 11, alpha-beta is faster (30 seconds).
 
-All 3 algorithms were evaluate using a tournament-style competition.
+All 3 algorithms were evaluated using a tournament-style competition.
 
 The tournament is a double round robin: every pair plays twice, swapping first and second player. A win is worth 3 points and a draw 1 point.
 
@@ -54,8 +54,6 @@ The tournament is a double round robin: every pair plays twice, swapping first a
 | DQN | 4 | 0 | 0 | 4 | 0 |
 
 The DQN dominated both timed tournaments, while the fixed-depth search agents both beat it from either side and split their games against each other. However, the minimax required a few minutes of time per move whereas the model required around 0.05 seconds per move on CPU.
-
-Timed results are hardware- and load-dependent; fixed-depth results are deterministic for a given model and implementation.
 
 ## Usage
 
